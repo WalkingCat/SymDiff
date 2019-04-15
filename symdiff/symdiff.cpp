@@ -12,6 +12,7 @@ struct sym_data {
 	map<wstring, set<wstring>> enums;
 };
 
+_com_ptr_t<_com_IIID<IDiaDataSource, &__uuidof(IDiaDataSource)>> create_data_source();
 sym_data load_sym_data(const wstring& file, const wstring& sym_path);
 
 namespace cmdl {
@@ -42,6 +43,12 @@ int wmain(int argc, wchar_t* argv[])
 	}
 
 	auto out = params.output_file;
+
+	if (!create_data_source()) {
+		fwprintf_s(out, L"\n error: can't initialize msdia library\n\n");
+		return 0;
+	}
+
 	fwprintf_s(out, L"\n diff legends: +: added, -: removed, *: changed, $: changed (original)\n");
 
 	const map<wstring, wstring> empty_files;
@@ -161,6 +168,13 @@ int wmain(int argc, wchar_t* argv[])
 	return 0;
 }
 
+_com_ptr_t<_com_IIID<IDiaDataSource, &__uuidof(IDiaDataSource)>> create_data_source() {
+	_com_ptr_t<_com_IIID<IDiaDataSource, &__uuidof(IDiaDataSource)>> data_source;
+	HRESULT hr = NoOleCoCreate(CLSID_DiaSource, IID_IDiaDataSource, (void**)&data_source);
+	if (FAILED(hr)) hr = NoRegCoCreate(L"msdia140.dll", CLSID_DiaSource, IID_IDiaDataSource, (void**)&data_source);
+	return data_source;
+}
+
 __int64 SizeOfFile(const wchar_t* name);
 
 sym_data load_sym_data(const wstring& file, const wstring& sym_path) {
@@ -186,10 +200,8 @@ sym_data load_sym_data(const wstring& file, const wstring& sym_path) {
 			return ret;	// skip Windows.UI.Xaml.pdb for now
 		}
 
-		_com_ptr_t<_com_IIID<IDiaDataSource, &__uuidof(IDiaDataSource)>> data_source;
-		HRESULT hr = NoOleCoCreate(CLSID_DiaSource, IID_IDiaDataSource, (void**)&data_source);
-		if (FAILED(hr)) hr = NoRegCoCreate(L"msdia140.dll", CLSID_DiaSource, IID_IDiaDataSource, (void**)&data_source);
-		if (SUCCEEDED(hr) && data_source && SUCCEEDED(data_source->loadDataFromPdb(sym_file.c_str()))) {
+		auto data_source = create_data_source();
+		if (data_source && SUCCEEDED(data_source->loadDataFromPdb(sym_file.c_str()))) {
 			ret.loaded = true;
 
 			_com_ptr_t<_com_IIID<IDiaSession, &__uuidof(IDiaSession)>> session;
@@ -204,6 +216,8 @@ sym_data load_sym_data(const wstring& file, const wstring& sym_path) {
 			for (auto tag : tags) {
 				_com_ptr_t<_com_IIID<IDiaEnumSymbols, &__uuidof(IDiaEnumSymbols)>> symbols;
 				global->findChildren(tag, NULL, nsNone, &symbols);
+
+				if (!symbols) continue;
 
 				_com_ptr_t<_com_IIID<IDiaSymbol, &__uuidof(IDiaSymbol)>> symbol;
 				ULONG celt = 0;
