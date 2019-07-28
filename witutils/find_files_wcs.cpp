@@ -36,14 +36,14 @@ vector<unsigned char> read_manifest(const wchar_t* path) {
 	if (len > head_len) {
 		if ((ret[0] == 'D') && (ret[1] == 'C') && (ret[2] == 'M') && (ret[3] == 1)) {
 			struct delta_input : DELTA_INPUT {
-				delta_input(const unsigned char * buffer, size_t len) {
+				delta_input(const unsigned char* buffer, size_t len) {
 					lpcStart = buffer; uSize = len; Editable = FALSE;
 				}
 			};
 
 			DELTA_HEADER_INFO dhi = {};
 			BOOL res = GetDeltaInfoB(delta_input(ret.data() + head_len, ret.size() - head_len), &dhi);
-			
+
 			if ((res == TRUE) && (dhi.TargetSize > 0)) {
 				vector<unsigned char> target(dhi.TargetSize);
 
@@ -71,10 +71,10 @@ wstring generate_key_from_manifest(const wstring& parent, const wstring& dir) {
 	wcscat_s(manifest_name, L".manifest");
 
 	auto manifest = read_manifest(manifest_name);
-	_com_ptr_t<_com_IIID<IStream, &__uuidof(IStream)>> stream = SHCreateMemStream(manifest.data(), manifest.size());
+	_com_ptr_t<_com_IIID<IStream, & __uuidof(IStream)>> stream = SHCreateMemStream(manifest.data(), manifest.size());
 	if (stream) {
 		IXmlReader* xml_reader = nullptr;
-		CreateXmlReader(__uuidof(IXmlReader), (void**)&xml_reader, nullptr);
+		CreateXmlReader(__uuidof(IXmlReader), (void**)& xml_reader, nullptr);
 		if (xml_reader) {
 			xml_reader->SetProperty(XmlReaderProperty_DtdProcessing, DtdProcessing_Prohibit);
 			IXmlReaderInput* xml_reader_input = nullptr;
@@ -84,11 +84,11 @@ wstring generate_key_from_manifest(const wstring& parent, const wstring& dir) {
 				XmlNodeType node_type;
 				while (SUCCEEDED(xml_reader->Read(&node_type))) {
 					if (node_type == XmlNodeType_Element) {
-						const wchar_t * elem_name = nullptr;
+						const wchar_t* elem_name = nullptr;
 						xml_reader->GetQualifiedName(&elem_name, nullptr);
 						if (wcscmp(elem_name, L"assemblyIdentity") == 0) {
 							auto name = read_attribute_value(xml_reader, L"name");
-							auto arch = read_attribute_value(xml_reader, L"processorArchitecture"); 
+							auto arch = read_attribute_value(xml_reader, L"processorArchitecture");
 							auto lang = read_attribute_value(xml_reader, L"language");
 							if ((!name.empty()) && (!arch.empty())) {
 								ret = arch + L"_" + name;
@@ -109,7 +109,7 @@ wstring generate_key_from_manifest(const wstring& parent, const wstring& dir) {
 	return ret;
 }
 
-map<wstring, map<wstring, wstring>> find_files_wcs(const wstring & directory, const std::wstring& file_pattern)
+map<wstring, map<wstring, wstring>> find_files_wcs(const wstring& directory, const std::wstring& file_pattern)
 {
 	map<wstring, map<wstring, wstring>> ret;
 
@@ -140,8 +140,16 @@ map<wstring, map<wstring, wstring>> find_files_wcs(const wstring & directory, co
 
 					PathAppend(path, file_pattern.c_str());
 					auto& files = ret[key.c_str()];
-					const auto& found_files = find_files(path);
-					files.insert(found_files.begin(), found_files.end());
+					const auto& found_files = find_files_ex(path, true);
+					for (auto& group_pair : found_files) {
+						auto& group = group_pair.first;
+						auto& group_files = group_pair.second;
+						for (auto& file_pair : group_files) {
+							auto key = file_pair.first;
+							if (!group.empty()) key = group + L"\\" + key;
+							files[key] = file_pair.second;
+						}
+					}
 					PathRemoveFileSpec(path);
 				}
 			}
@@ -151,7 +159,7 @@ map<wstring, map<wstring, wstring>> find_files_wcs(const wstring & directory, co
 	return ret;
 }
 
-std::map<std::wstring, std::map<std::wstring, std::wstring>> find_files_wcs_ex(const std::wstring & pattern, const std::wstring& default_file_pattern)
+std::map<std::wstring, std::map<std::wstring, std::wstring>> find_files_wcs_ex(const std::wstring& pattern, const std::wstring& default_file_pattern)
 {
 	wstring directory, file_pattern = default_file_pattern;
 	if (PathIsDirectoryW(pattern.c_str())) {
