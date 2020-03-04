@@ -42,7 +42,7 @@ int wmain(int argc, wchar_t* argv[])
 		return 0;
 	}
 
-	auto out = params.output_file;
+	auto out = params.out;
 
 	if (!create_data_source()) {
 		fwprintf_s(out, L"\n error: can't initialize msdia library\n\n");

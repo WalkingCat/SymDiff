@@ -8,7 +8,7 @@ wstring read_attribute_value(IXmlReader* xml_reader, const wchar_t* attribute) {
 	wstring ret;
 	const wchar_t* buf = nullptr; UINT len = 0;
 	if (SUCCEEDED(xml_reader->MoveToAttributeByName(attribute, nullptr))
-		&& SUCCEEDED(xml_reader->GetValue(&buf, &len))) {
+		&& SUCCEEDED(xml_reader->GetValue(&buf, &len)) && (buf != nullptr)) {
 		ret = wstring(buf, len);
 	}
 	return ret;
@@ -62,16 +62,16 @@ vector<unsigned char> read_manifest(const wchar_t* path) {
 	return ret;
 }
 
-wstring generate_key_from_manifest(const wstring& parent, const wstring& dir) {
+wstring generate_key_from_manifest(const wstring_view parent, const wstring_view dir) {
 	wstring ret;
 
 	wchar_t manifest_name[MAX_PATH] = {};
-	wcscpy_s(manifest_name, parent.c_str());
-	PathAppendW(manifest_name, dir.c_str());
+	wcscpy_s(manifest_name, parent.data());
+	PathAppendW(manifest_name, dir.data());
 	wcscat_s(manifest_name, L".manifest");
 
 	auto manifest = read_manifest(manifest_name);
-	_com_ptr_t<_com_IIID<IStream, & __uuidof(IStream)>> stream = SHCreateMemStream(manifest.data(), manifest.size());
+	_com_ptr_t<_com_IIID<IStream, & __uuidof(IStream)>> stream = SHCreateMemStream(manifest.data(), static_cast<UINT>(manifest.size()));
 	if (stream) {
 		IXmlReader* xml_reader = nullptr;
 		CreateXmlReader(__uuidof(IXmlReader), (void**)& xml_reader, nullptr);
@@ -81,12 +81,12 @@ wstring generate_key_from_manifest(const wstring& parent, const wstring& dir) {
 			CreateXmlReaderInputWithEncodingCodePage(stream, nullptr, CP_UTF8, TRUE, nullptr, &xml_reader_input);
 			if (xml_reader_input) {
 				xml_reader->SetInput(xml_reader_input);
-				XmlNodeType node_type;
+				XmlNodeType node_type = XmlNodeType::XmlNodeType_None;
 				while (SUCCEEDED(xml_reader->Read(&node_type))) {
 					if (node_type == XmlNodeType_Element) {
 						const wchar_t* elem_name = nullptr;
 						xml_reader->GetQualifiedName(&elem_name, nullptr);
-						if (wcscmp(elem_name, L"assemblyIdentity") == 0) {
+						if (elem_name && wcscmp(elem_name, L"assemblyIdentity") == 0) {
 							auto name = read_attribute_value(xml_reader, L"name");
 							auto arch = read_attribute_value(xml_reader, L"processorArchitecture");
 							auto lang = read_attribute_value(xml_reader, L"language");
@@ -109,7 +109,8 @@ wstring generate_key_from_manifest(const wstring& parent, const wstring& dir) {
 	return ret;
 }
 
-map<wstring, map<wstring, wstring>> find_files_wcs(const wstring& directory, const std::wstring& file_pattern)
+map<wstring, map<wstring, wstring>>
+find_files_wcs(const wstring_view directory, const std::wstring_view path_filter, const std::wstring_view file_pattern)
 {
 	map<wstring, map<wstring, wstring>> ret;
 
@@ -118,7 +119,7 @@ map<wstring, map<wstring, wstring>> find_files_wcs(const wstring& directory, con
 	wsmatch match;
 
 	wchar_t path[MAX_PATH] = {};
-	wcscpy_s(path, directory.c_str());
+	wcscpy_s(path, directory.data());
 	PathAppend(path, L"*");
 	WIN32_FIND_DATAW fd;
 	HANDLE find = ::FindFirstFileW(path, &fd);
@@ -138,9 +139,9 @@ map<wstring, map<wstring, wstring>> find_files_wcs(const wstring& directory, con
 					PathRemoveFileSpec(path);
 					PathCombine(path, path, fd.cFileName);
 
-					PathAppend(path, file_pattern.c_str());
+					PathAppend(path, file_pattern.data());
 					auto& files = ret[key.c_str()];
-					const auto& found_files = find_files_ex(path, true);
+					const auto& found_files = find_files_ex(path, true, path_filter);
 					for (auto& group_pair : found_files) {
 						auto& group = group_pair.first;
 						auto& group_files = group_pair.second;
@@ -159,23 +160,24 @@ map<wstring, map<wstring, wstring>> find_files_wcs(const wstring& directory, con
 	return ret;
 }
 
-std::map<std::wstring, std::map<std::wstring, std::wstring>> find_files_wcs_ex(const std::wstring& pattern, const std::wstring& default_file_pattern)
+std::map<std::wstring, std::map<std::wstring, std::wstring>>
+find_files_wcs_ex(const std::wstring_view pattern, const std::wstring_view path_filter, const std::wstring_view default_file_pattern)
 {
-	wstring directory, file_pattern = default_file_pattern;
-	if (PathIsDirectoryW(pattern.c_str())) {
+	wstring directory, file_pattern{ default_file_pattern };
+	if (PathIsDirectoryW(pattern.data())) {
 		directory = pattern;
 	} else {
-		file_pattern = PathFindFileName(pattern.c_str());
+		file_pattern = PathFindFileName(pattern.data());
 		auto dir = pattern;
 		PathRemoveFileSpec((LPWSTR)dir.data());
 		directory = dir;
 	}
 
-	return find_files_wcs(directory, file_pattern);
+	return find_files_wcs(directory, path_filter, file_pattern);
 }
 
 
-const unsigned char manifest_source::data[] = {
+constexpr unsigned char manifest_source::data[] = {
 0x3C, 0x3F, 0x78, 0x6D, 0x6C, 0x20, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6F, 0x6E, 0x3D, 0x22, 0x31,
 0x2E, 0x30, 0x22, 0x20, 0x65, 0x6E, 0x63, 0x6F, 0x64, 0x69, 0x6E, 0x67, 0x3D, 0x22, 0x55, 0x54,
 0x46, 0x2D, 0x38, 0x22, 0x20, 0x73, 0x74, 0x61, 0x6E, 0x64, 0x61, 0x6C, 0x6F, 0x6E, 0x65, 0x3D,
@@ -744,4 +746,4 @@ const unsigned char manifest_source::data[] = {
 0x6E, 0x67, 0x75, 0x6E, 0x73, 0x69, 0x67, 0x6E, 0x65, 0x64, 0x49, 0x6E, 0x74, 0x64, 0x69, 0x73,
 0x70, 0x6C, 0x61, 0x79, 0x4E, 0x61, 0x6D, 0x65, 0x0D, 0x0A,
 };
-const size_t manifest_source::size = sizeof(manifest_source::data);
+constexpr size_t manifest_source::size = sizeof(manifest_source::data);

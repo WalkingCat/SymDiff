@@ -3,13 +3,13 @@
 
 using namespace std;
 
-map<wstring, wstring> find_files_impl(const wchar_t * pattern, bool directories)
+map<wstring, wstring> find_files_impl(const wstring_view pattern, bool directories)
 {
 	map<wstring, wstring> ret;
 	wchar_t path[MAX_PATH] = {};
-	wcscpy_s(path, pattern);
+	wcscpy_s(path, pattern.data());
 	WIN32_FIND_DATA fd;
-	HANDLE find = ::FindFirstFile(pattern, &fd);
+	HANDLE find = ::FindFirstFile(pattern.data(), &fd);
 	if (find != INVALID_HANDLE_VALUE) {
 		do {
 			if ((wcscmp(fd.cFileName, L".") == 0) || (wcscmp(fd.cFileName, L"..") == 0))
@@ -28,53 +28,53 @@ map<wstring, wstring> find_files_impl(const wchar_t * pattern, bool directories)
 	return ret;
 }
 
-map<wstring, wstring> find_files(const wchar_t * pattern)
+map<wstring, wstring> find_files(const wstring_view pattern)
 {
 	return find_files_impl(pattern, false);
 }
 
 namespace {
-	wstring path_combine(const wstring& dir, const wstring& file) {
+	wstring path_combine(const wstring_view dir, const wstring_view file) {
 		wchar_t path[MAX_PATH] = {};
-		wcscpy_s(path, dir.c_str());
-		PathCombine(path, path, file.c_str());
+		wcscpy_s(path, dir.data());
+		PathCombine(path, path, file.data());
 		return path;
 	}
 }
 
-std::map<std::wstring, std::map<std::wstring, std::wstring>> find_files_ex(const wstring& pattern, bool recursive, const std::wstring& default_file_pattern)
+std::map<std::wstring, std::map<std::wstring, std::wstring>>
+find_files_ex(const wstring_view pattern, bool recursive, const wstring_view path_filter, const std::wstring_view default_file_pattern)
 {
 	std::map<std::wstring, std::map<std::wstring, std::wstring>> ret;
-	
+
 	if (pattern.empty())
 		return ret;
-	
-	wstring dir;
-	wstring file_pat = pattern;
-	if (PathIsDirectory(pattern.c_str()) != FALSE) {
+
+	wstring dir, file_pat{ pattern };
+	if (PathIsDirectory(pattern.data()) != FALSE) {
 		dir = pattern;
 		file_pat = default_file_pattern;
-	} else if (PathIsFileSpec(pattern.c_str()) == FALSE) {
-		const auto file_spec = PathFindFileName(pattern.c_str());
-		if (file_spec != pattern.c_str()) {
-			dir = wstring(pattern.c_str(), file_spec - pattern.c_str());
+	} else if (PathIsFileSpec(pattern.data()) == FALSE) {
+		const auto file_spec = PathFindFileName(pattern.data());
+		if (file_spec != pattern.data()) {
+			dir = wstring(pattern.data(), file_spec - pattern.data());
 			file_pat = file_spec;
 		}
 	}
 
-	auto files = find_files_impl(path_combine(dir, file_pat).c_str(), false);
-	if (!files.empty()) ret[wstring()] = move(files);
+	if (path_filter.empty()) {
+		auto files = find_files_impl(path_combine(dir, file_pat), false);
+		if (!files.empty()) ret[wstring()] = move(files);
+	}
 
 	if (recursive) {
-		static const wstring asterisk = L"*";
-		auto directories = find_files_impl(path_combine(dir, asterisk).c_str(), true);
-		for (auto& dir_pair : directories) {
-			auto files = find_files_ex(dir_pair.second, true, file_pat);
+		static constexpr wstring_view asterisk = L"*";
+		const auto dirs = find_files_impl(path_combine(dir, asterisk), true);
+		for (auto& dir_pair : dirs) {
+			const bool include = (dir_pair.first.find(path_filter) != wstring::npos);
+			auto files = find_files_ex(dir_pair.second, true, include ? wstring_view() : path_filter, file_pat);
 			for (auto pair : files) {
-				wchar_t key[MAX_PATH] = {};
-				wcscpy_s(key, dir_pair.first.c_str());
-				PathCombine(key, key, pair.first.c_str());
-				ret[key] = move(pair.second);
+				ret[path_combine(dir_pair.first, pair.first)] = move(pair.second);
 			}
 		}
 	}
